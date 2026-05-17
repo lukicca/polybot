@@ -1,17 +1,31 @@
-import json
+import os
 import time
 import requests
 import sqlite3
-import os
 
-# ── Load config ──────────────────────────────────────────────────────────────
-with open("config.json") as f:
-    config = json.load(f)
+# ── Load config from environment variables (Railway) ─────────────────────────
+TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
+POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", 60))
 
-TELEGRAM_TOKEN = config["telegram_token"]
-CHAT_ID = config["chat_id"]
-WALLETS = config["wallets"]
-POLL_INTERVAL = config.get("poll_interval_seconds", 60)
+# Build wallet list from env vars (WALLET_1, WALLET_1_LABEL, WALLET_2, etc.)
+WALLETS = []
+i = 1
+while True:
+    address = os.environ.get(f"WALLET_{i}")
+    label = os.environ.get(f"WALLET_{i}_LABEL", f"Trader {i}")
+    if not address:
+        break
+    WALLETS.append({"address": address, "label": label})
+    i += 1
+
+if not WALLETS:
+    print("ERROR: No wallets configured! Add WALLET_1 and WALLET_1_LABEL environment variables.")
+    exit(1)
+
+if not TELEGRAM_TOKEN or not CHAT_ID:
+    print("ERROR: Missing TELEGRAM_TOKEN or CHAT_ID environment variables.")
+    exit(1)
 
 # ── Database setup (remembers trades we've already seen) ──────────────────────
 conn = sqlite3.connect("seen_trades.db")
