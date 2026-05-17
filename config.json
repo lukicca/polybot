@@ -1,0 +1,11 @@
+{
+  "telegram_token": "8799669919:AAFi88LNbR4JeseROMPGxBds7RWfl8kbV5Q",
+  "chat_id": "5939617999",
+  "poll_interval_seconds": 60,
+  "wallets": [
+    {
+      "address": "0x9f2fe025f84839ca81dd8e0338892605702d2ca8",
+      "label": "Trader 1"
+    }
+  ]
+}
