@@ -27,7 +27,7 @@ if not TELEGRAM_TOKEN or not CHAT_ID:
     print("ERROR: Missing TELEGRAM_TOKEN or CHAT_ID environment variables.")
     exit(1)
 
-# ── Database setup (remembers trades we've already seen) ──────────────────────
+# ── Database setup ────────────────────────────────────────────────────────────
 conn = sqlite3.connect("seen_trades.db")
 cursor = conn.cursor()
 cursor.execute("""
@@ -59,60 +59,57 @@ def send_telegram(message):
     except Exception as e:
         print(f"[Telegram error] {e}")
 
-# ── Polymarket API fetch ──────────────────────────────────────────────────────
+# ── Polymarket public data API ────────────────────────────────────────────────
 def get_trades(wallet_address):
-    url = "https://clob.polymarket.com/trades"
+    url = "https://data-api.polymarket.com/activity"
     params = {
-        "maker_address": wallet_address,
-        "limit": 20
+        "user": wallet_address.lower(),
+        "limit": 20,
+        "offset": 0
     }
     try:
         r = requests.get(url, params=params, timeout=10)
         r.raise_for_status()
         data = r.json()
+        if isinstance(data, list):
+            return data
         return data.get("data", [])
     except Exception as e:
         print(f"[Polymarket error for {wallet_address}] {e}")
         return []
 
-def get_market_title(condition_id):
-    try:
-        url = f"https://clob.polymarket.com/markets/{condition_id}"
-        r = requests.get(url, timeout=10)
-        r.raise_for_status()
-        data = r.json()
-        return data.get("question", "Unknown Market")
-    except:
-        return "Unknown Market"
-
-# ── Format the alert message ─────────────────────────────────────────────────
+# ── Format alert message ──────────────────────────────────────────────────────
 def format_message(label, trade):
-    side = trade.get("side", "?").upper()
-    size = trade.get("size", "?")
+    side = trade.get("side", trade.get("type", "?"))
+    if isinstance(side, str):
+        side = side.upper()
+
+    size = trade.get("size", trade.get("amount", "?"))
     price = trade.get("price", "?")
-    condition_id = trade.get("market", "")
+    market_title = trade.get("title") or trade.get("question") or trade.get("market", "Unknown Market")
+    outcome = trade.get("outcome", "")
 
-    # Try to get a human-readable market title
-    market_title = get_market_title(condition_id) if condition_id else "Unknown Market"
-
-    emoji = "🟢" if side == "BUY" else "🔴"
+    emoji = "🟢" if side in ["BUY", "YES"] else "🔴"
 
     try:
         size_fmt = f"${float(size):,.2f}"
     except:
-        size_fmt = size
+        size_fmt = str(size)
 
     try:
         price_fmt = f"{float(price) * 100:.1f}¢"
     except:
-        price_fmt = price
+        price_fmt = str(price)
 
-    return (
+    msg = (
         f"{emoji} *{label}* just made a trade!\n"
         f"📊 *Market:* {market_title}\n"
-        f"📈 *Side:* {side}\n"
-        f"💰 *Size:* {size_fmt} at {price_fmt}"
+        f"📈 *Side:* {side}"
     )
+    if outcome:
+        msg += f" ({outcome})"
+    msg += f"\n💰 *Size:* {size_fmt} at {price_fmt}"
+    return msg
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 def main():
@@ -124,15 +121,21 @@ def main():
             address = wallet["address"]
             label = wallet["label"]
             trades = get_trades(address)
+            print(f"[{label}] Found {len(trades)} trades")
 
             for trade in trades:
-                trade_id = trade.get("id") or trade.get("trade_id")
+                trade_id = (
+                    trade.get("id") or
+                    trade.get("tradeId") or
+                    trade.get("txHash") or
+                    trade.get("transactionHash")
+                )
                 if not trade_id:
+                    print(f"[{label}] Trade missing ID, skipping: {trade}")
                     continue
                 if already_seen(trade_id):
                     continue
 
-                # New trade found!
                 mark_seen(trade_id)
                 msg = format_message(label, trade)
                 print(f"[New trade] {label}: {trade_id}")
