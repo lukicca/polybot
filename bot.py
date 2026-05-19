@@ -8,7 +8,7 @@ TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 CHAT_ID = os.environ.get("CHAT_ID")
 POLL_INTERVAL = int(os.environ.get("POLL_INTERVAL", 60))
 
-# Build wallet list from env vars (WALLET_1, WALLET_1_LABEL, WALLET_2, etc.)
+# Build wallet list from env vars
 WALLETS = []
 i = 1
 while True:
@@ -20,11 +20,11 @@ while True:
     i += 1
 
 if not WALLETS:
-    print("ERROR: No wallets configured! Add WALLET_1 and WALLET_1_LABEL environment variables.")
+    print("ERROR: No wallets configured!")
     exit(1)
 
 if not TELEGRAM_TOKEN or not CHAT_ID:
-    print("ERROR: Missing TELEGRAM_TOKEN or CHAT_ID environment variables.")
+    print("ERROR: Missing TELEGRAM_TOKEN or CHAT_ID!")
     exit(1)
 
 # ── Database setup ────────────────────────────────────────────────────────────
@@ -45,17 +45,19 @@ def mark_seen(trade_id):
     cursor.execute("INSERT OR IGNORE INTO seen_trades (trade_id) VALUES (?)", (trade_id,))
     conn.commit()
 
-# ── Telegram sender ───────────────────────────────────────────────────────────
+# ── Telegram sender (plain text, no markdown) ─────────────────────────────────
 def send_telegram(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     payload = {
         "chat_id": CHAT_ID,
-        "text": message,
-        "parse_mode": "Markdown"
+        "text": message
     }
     try:
         r = requests.post(url, json=payload, timeout=10)
-        r.raise_for_status()
+        if not r.ok:
+            print(f"[Telegram error] {r.status_code}: {r.text}")
+        else:
+            print("[Telegram] Message sent!")
     except Exception as e:
         print(f"[Telegram error] {e}")
 
@@ -80,10 +82,7 @@ def get_trades(wallet_address):
 
 # ── Format alert message ──────────────────────────────────────────────────────
 def format_message(label, trade):
-    side = trade.get("side", trade.get("type", "?"))
-    if isinstance(side, str):
-        side = side.upper()
-
+    side = str(trade.get("side", trade.get("type", "?"))).upper()
     size = trade.get("size", trade.get("amount", "?"))
     price = trade.get("price", "?")
     market_title = trade.get("title") or trade.get("question") or trade.get("market", "Unknown Market")
@@ -97,24 +96,22 @@ def format_message(label, trade):
         size_fmt = str(size)
 
     try:
-        price_fmt = f"{float(price) * 100:.1f}¢"
+        price_fmt = f"{float(price) * 100:.1f}c"
     except:
         price_fmt = str(price)
 
-    msg = (
-        f"{emoji} *{label}* just made a trade!\n"
-        f"📊 *Market:* {market_title}\n"
-        f"📈 *Side:* {side}"
-    )
+    msg = f"{emoji} {label} just made a trade!\n"
+    msg += f"Market: {market_title}\n"
+    msg += f"Side: {side}"
     if outcome:
         msg += f" ({outcome})"
-    msg += f"\n💰 *Size:* {size_fmt} at {price_fmt}"
+    msg += f"\nSize: {size_fmt} at {price_fmt}"
     return msg
 
 # ── Main loop ─────────────────────────────────────────────────────────────────
 def main():
-    print(f"🤖 Polymarket bot started. Watching {len(WALLETS)} wallet(s)...")
-    send_telegram("🤖 *Polymarket Tracker is online!*\nI'll notify you when your tracked traders make a move.")
+    print(f"Bot started. Watching {len(WALLETS)} wallet(s)...")
+    send_telegram("Polymarket Tracker is online! I will notify you when your tracked traders make a move.")
 
     while True:
         for wallet in WALLETS:
@@ -131,7 +128,6 @@ def main():
                     trade.get("transactionHash")
                 )
                 if not trade_id:
-                    print(f"[{label}] Trade missing ID, skipping: {trade}")
                     continue
                 if already_seen(trade_id):
                     continue
